@@ -7,7 +7,7 @@ import time
 NEON_GREEN = '\033[92m'
 RESET_COLOR = '\033[0m'
 
-def transcribe_chunk(model, file_path, vad_filter=False):
+def transcribe_chunk(model, file_path):
     segments, info = model.transcribe(file_path, beam_size=5)
     transcription = ' '.join(segment.text for segment in segments)
     return transcription
@@ -15,13 +15,7 @@ def transcribe_chunk(model, file_path, vad_filter=False):
 def record_chunk(p, stream, file_path, chunk_length=1):
     frames = []
     for _ in range(0, int(16000 / 1024 * chunk_length)):
-        #data = stream.read(256, exception_on_overflow=True)
-        try:
-            data = stream.read(256, exception_on_overflow=False)  # Ignore overflow errors
-        except OSError as e:
-            print(f"Warning: Audio buffer overflowed - {e}")
-            return  # Skip processing this chunk
-
+        data = stream.read(1024)
         frames.append(data)
 
     wf = wave.open(file_path, 'wb')
@@ -33,16 +27,11 @@ def record_chunk(p, stream, file_path, chunk_length=1):
 
 def main2():
     # Choose your model settings
-    model_size = "tiny.en"
-    model = WhisperModel(model_size, device="cpu", compute_type="int8", cpu_threads=4)
+    model_size = "medium.en"
+    model = WhisperModel(model_size, device="cuda", compute_type="float16")
 
     p = pyaudio.PyAudio()
-    stream = p.open(format=pyaudio.paInt16,
-                    channels=1,
-                    rate=16000,
-                    input=True,
-                    frames_per_buffer=512,
-                    stream_callback=None)
+    stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
 
     accumulated_transcription = ""  # Initialize an empty string to accumulate transcriptions
 
@@ -50,11 +39,12 @@ def main2():
         while True:
             chunk_file = "temp_chunk.wav"
             record_chunk(p, stream, chunk_file)
-            transcription = transcribe_chunk(model, chunk_file, vad_filter=True)
-            if transcription and not transcription.isspace():
-                print(NEON_GREEN + transcription + RESET_COLOR)
-                accumulated_transcription += transcription + " "
+            transcription = transcribe_chunk(model, chunk_file)
+            print(NEON_GREEN + transcription + RESET_COLOR)
             os.remove(chunk_file)
+            
+            # Append the new transcription to the accumulated transcription
+            accumulated_transcription += transcription + " "
 
     except KeyboardInterrupt:
         print("Stopping...")
@@ -63,11 +53,9 @@ def main2():
             log_file.write(accumulated_transcription)
     finally:
         print("LOG:" + accumulated_transcription)
-        if stream.is_active():  # Only stop if stream is open
-            stream.stop_stream()
-            stream.close()
+        stream.stop_stream()
+        stream.close()
         p.terminate()
-
 
 if __name__ == "__main__":
     main2()
