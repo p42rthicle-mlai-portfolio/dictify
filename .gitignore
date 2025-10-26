@@ -1,4 +1,6 @@
 venv/
-env/
-**/venv/
-**/env/
+ollama-venv/
+*.pyc
+__pycache__/
+.DS_Store
+.env
